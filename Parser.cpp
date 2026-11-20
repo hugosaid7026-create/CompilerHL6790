@@ -1,51 +1,364 @@
 #include "Parser.hpp"
 
-AnalizadorSintactico::AnalizadorSintactico(const std::vector<Token>& tokens, TablaSimbolos& tabla, AnalizadorSemantico& semantico, GeneradorCodigoIntermedio& generador) : tokens(tokens), tabla(tabla), semantico(semantico), generador(generador) {}
-const Token& AnalizadorSintactico::actual() const { return tokens[posicion]; }
-const Token& AnalizadorSintactico::avanzar() { if (!verificar(TipoToken::FinArchivo)) ++posicion; return tokens[posicion - 1]; }
-bool AnalizadorSintactico::verificar(TipoToken tipo) const { return actual().tipo == tipo; }
-bool AnalizadorSintactico::coincide(TipoToken tipo) { if (!verificar(tipo)) return false; avanzar(); return true; }
-bool AnalizadorSintactico::esTipo(TipoToken tipo) const { return tipo == TipoToken::TipoInt || tipo == TipoToken::TipoFloat || tipo == TipoToken::TipoBool || tipo == TipoToken::TipoString; }
-void AnalizadorSintactico::error(const Token& token, const std::string& mensaje) { errores.push_back({mensaje, token.linea, token.columna}); }
-Token AnalizadorSintactico::consumir(TipoToken tipo, const std::string& mensaje) { if (verificar(tipo)) return avanzar(); error(actual(), mensaje); Token falso = actual(); if (!verificar(TipoToken::FinArchivo)) avanzar(); return falso; }
-std::string AnalizadorSintactico::consumirTipo() { Token token = avanzar(); return token.lexema; }
-void AnalizadorSintactico::analizar() { while (!verificar(TipoToken::FinArchivo)) { if (esTipo(actual().tipo)) declaracionOFuncion(); else { error(actual(), "Se esperaba una declaracion o funcion"); avanzar(); } } }
-void AnalizadorSintactico::declaracionOFuncion() { std::string tipo = consumirTipo(); Token nombre = consumir(TipoToken::Identificador, "Se esperaba un identificador despues del tipo"); if (coincide(TipoToken::ParentesisIzquierdo)) funcion(tipo, nombre); else declaracionVariable(tipo, nombre); }
-void AnalizadorSintactico::funcion(const std::string& tipo, const Token& nombre) {
-    std::vector<std::pair<std::string, Token>> parametros; std::vector<std::string> tipos;
-    if (!verificar(TipoToken::ParentesisDerecho)) do { if (!esTipo(actual().tipo)) { error(actual(), "Se esperaba tipo de parametro"); break; } std::string tipoParametro = consumirTipo(); Token nombreParametro = consumir(TipoToken::Identificador, "Se esperaba nombre de parametro"); parametros.push_back({tipoParametro, nombreParametro}); tipos.push_back(tipoParametro); } while (coincide(TipoToken::Coma));
-    consumir(TipoToken::ParentesisDerecho, "Se esperaba ) despues de parametros");
-    if (!tabla.declarar({nombre.lexema, tipo, "funcion", tabla.ambitoActual(), nombre.linea, tipos})) semantico.agregarError("Funcion redeclarada: " + nombre.lexema, nombre.linea, nombre.columna);
-    generador.emitir("funcion", nombre.lexema, "", "");
-    consumir(TipoToken::LlaveIzquierda, "Se esperaba { al iniciar funcion"); tabla.entrarAmbito();
-    for (const auto& parametro : parametros) { if (!tabla.declarar({parametro.second.lexema, parametro.first, "parametro", tabla.ambitoActual(), parametro.second.linea, {}})) semantico.agregarError("Parametro redeclarado: " + parametro.second.lexema, parametro.second.linea, parametro.second.columna); }
-    while (!verificar(TipoToken::LlaveDerecha) && !verificar(TipoToken::FinArchivo)) sentencia();
-    consumir(TipoToken::LlaveDerecha, "Se esperaba } al cerrar funcion"); tabla.salirAmbito(); generador.emitir("fin_funcion", nombre.lexema, "", "");
+AnalizadorSintactico::AnalizadorSintactico(const std::vector<Token> &tokens, TablaSimbolos &tabla,
+                                           AnalizadorSemantico &semantico,
+                                           GeneradorCodigoIntermedio &generador)
+    : tokens(tokens), tabla(tabla), semantico(semantico), generador(generador) {
 }
-void AnalizadorSintactico::declaracionVariable(const std::string& tipo, const Token& nombre, bool requierePuntoComa) {
-    if (!tabla.declarar({nombre.lexema, tipo, "variable", tabla.ambitoActual(), nombre.linea, {}})) semantico.agregarError("Variable redeclarada: " + nombre.lexema, nombre.linea, nombre.columna);
-    if (coincide(TipoToken::Asignacion)) { ResultadoExpresion valor = expresion(); if (!semantico.asignacionCompatible(tipo, valor.tipo)) semantico.agregarError("Asignacion incompatible a " + nombre.lexema, nombre.linea, nombre.columna); generador.emitir("=", valor.valor, "", nombre.lexema); }
-    if (requierePuntoComa) consumir(TipoToken::PuntoComa, "Se esperaba ; despues de declaracion");
+const Token &AnalizadorSintactico::actual() const {
+  return tokens[posicion];
 }
-void AnalizadorSintactico::bloque(bool crearAmbito) { consumir(TipoToken::LlaveIzquierda, "Se esperaba {"); if (crearAmbito) tabla.entrarAmbito(); while (!verificar(TipoToken::LlaveDerecha) && !verificar(TipoToken::FinArchivo)) sentencia(); consumir(TipoToken::LlaveDerecha, "Se esperaba }"); if (crearAmbito) tabla.salirAmbito(); }
+const Token &AnalizadorSintactico::avanzar() {
+  if (!verificar(TipoToken::FinArchivo))
+    ++posicion;
+  return tokens[posicion - 1];
+}
+bool AnalizadorSintactico::verificar(TipoToken tipo) const {
+  return actual().tipo == tipo;
+}
+bool AnalizadorSintactico::coincide(TipoToken tipo) {
+  if (!verificar(tipo))
+    return false;
+  avanzar();
+  return true;
+}
+bool AnalizadorSintactico::esTipo(TipoToken tipo) const {
+  return tipo == TipoToken::TipoInt || tipo == TipoToken::TipoFloat ||
+         tipo == TipoToken::TipoBool || tipo == TipoToken::TipoString;
+}
+void AnalizadorSintactico::error(const Token &token, const std::string &mensaje) {
+  errores.push_back({mensaje, token.linea, token.columna});
+}
+Token AnalizadorSintactico::consumir(TipoToken tipo, const std::string &mensaje) {
+  if (verificar(tipo))
+    return avanzar();
+  error(actual(), mensaje);
+  Token falso = actual();
+  if (!verificar(TipoToken::FinArchivo))
+    avanzar();
+  return falso;
+}
+std::string AnalizadorSintactico::consumirTipo() {
+  Token token = avanzar();
+  return token.lexema;
+}
+void AnalizadorSintactico::analizar() {
+  while (!verificar(TipoToken::FinArchivo)) {
+    if (esTipo(actual().tipo))
+      declaracionOFuncion();
+    else {
+      error(actual(), "Se esperaba una declaracion o funcion");
+      avanzar();
+    }
+  }
+}
+void AnalizadorSintactico::declaracionOFuncion() {
+  std::string tipo = consumirTipo();
+  Token nombre =
+      consumir(TipoToken::Identificador, "Se esperaba un identificador despues del tipo");
+  if (coincide(TipoToken::ParentesisIzquierdo))
+    funcion(tipo, nombre);
+  else
+    declaracionVariable(tipo, nombre);
+}
+void AnalizadorSintactico::funcion(const std::string &tipo, const Token &nombre) {
+  std::vector<std::pair<std::string, Token>> parametros;
+  std::vector<std::string> tipos;
+  if (!verificar(TipoToken::ParentesisDerecho))
+    do {
+      if (!esTipo(actual().tipo)) {
+        error(actual(), "Se esperaba tipo de parametro");
+        break;
+      }
+      std::string tipoParametro = consumirTipo();
+      Token nombreParametro = consumir(TipoToken::Identificador, "Se esperaba nombre de parametro");
+      parametros.push_back({tipoParametro, nombreParametro});
+      tipos.push_back(tipoParametro);
+    } while (coincide(TipoToken::Coma));
+  consumir(TipoToken::ParentesisDerecho, "Se esperaba ) despues de parametros");
+  if (!tabla.declarar({nombre.lexema, tipo, "funcion", tabla.ambitoActual(), nombre.linea, tipos}))
+    semantico.agregarError("Funcion redeclarada: " + nombre.lexema, nombre.linea, nombre.columna);
+  generador.emitir("funcion", nombre.lexema, "", "");
+  consumir(TipoToken::LlaveIzquierda, "Se esperaba { al iniciar funcion");
+  tabla.entrarAmbito();
+  for (const auto &parametro : parametros) {
+    if (!tabla.declarar({parametro.second.lexema,
+                         parametro.first,
+                         "parametro",
+                         tabla.ambitoActual(),
+                         parametro.second.linea,
+                         {}}))
+      semantico.agregarError("Parametro redeclarado: " + parametro.second.lexema,
+                             parametro.second.linea, parametro.second.columna);
+  }
+  while (!verificar(TipoToken::LlaveDerecha) && !verificar(TipoToken::FinArchivo))
+    sentencia();
+  consumir(TipoToken::LlaveDerecha, "Se esperaba } al cerrar funcion");
+  tabla.salirAmbito();
+  generador.emitir("fin_funcion", nombre.lexema, "", "");
+}
+void AnalizadorSintactico::declaracionVariable(const std::string &tipo, const Token &nombre,
+                                               bool requierePuntoComa) {
+  if (!tabla.declarar({nombre.lexema, tipo, "variable", tabla.ambitoActual(), nombre.linea, {}}))
+    semantico.agregarError("Variable redeclarada: " + nombre.lexema, nombre.linea, nombre.columna);
+  if (coincide(TipoToken::Asignacion)) {
+    ResultadoExpresion valor = expresion();
+    if (!semantico.asignacionCompatible(tipo, valor.tipo))
+      semantico.agregarError("Asignacion incompatible a " + nombre.lexema, nombre.linea,
+                             nombre.columna);
+    generador.emitir("=", valor.valor, "", nombre.lexema);
+  }
+  if (requierePuntoComa)
+    consumir(TipoToken::PuntoComa, "Se esperaba ; despues de declaracion");
+}
+void AnalizadorSintactico::bloque(bool crearAmbito) {
+  consumir(TipoToken::LlaveIzquierda, "Se esperaba {");
+  if (crearAmbito)
+    tabla.entrarAmbito();
+  while (!verificar(TipoToken::LlaveDerecha) && !verificar(TipoToken::FinArchivo))
+    sentencia();
+  consumir(TipoToken::LlaveDerecha, "Se esperaba }");
+  if (crearAmbito)
+    tabla.salirAmbito();
+}
 void AnalizadorSintactico::sentencia() {
-    if (esTipo(actual().tipo)) { std::string tipo = consumirTipo(); Token nombre = consumir(TipoToken::Identificador, "Se esperaba identificador"); declaracionVariable(tipo, nombre); }
-    else if (coincide(TipoToken::Si)) sentenciaSi(); else if (coincide(TipoToken::Mientras)) sentenciaMientras(); else if (coincide(TipoToken::Para)) sentenciaPara(); else if (coincide(TipoToken::Retornar)) sentenciaRetornar(); else if (coincide(TipoToken::Imprimir)) sentenciaImprimir(); else if (verificar(TipoToken::Identificador)) asignacion(); else if (verificar(TipoToken::LlaveIzquierda)) bloque(); else { error(actual(), "Sentencia no reconocida"); avanzar(); }
+  if (esTipo(actual().tipo)) {
+    std::string tipo = consumirTipo();
+    Token nombre = consumir(TipoToken::Identificador, "Se esperaba identificador");
+    declaracionVariable(tipo, nombre);
+  } else if (coincide(TipoToken::Si))
+    sentenciaSi();
+  else if (coincide(TipoToken::Mientras))
+    sentenciaMientras();
+  else if (coincide(TipoToken::Para))
+    sentenciaPara();
+  else if (coincide(TipoToken::Retornar))
+    sentenciaRetornar();
+  else if (coincide(TipoToken::Imprimir))
+    sentenciaImprimir();
+  else if (verificar(TipoToken::Identificador))
+    asignacion();
+  else if (verificar(TipoToken::LlaveIzquierda))
+    bloque();
+  else {
+    error(actual(), "Sentencia no reconocida");
+    avanzar();
+  }
 }
-void AnalizadorSintactico::sentenciaSi() { consumir(TipoToken::ParentesisIzquierdo, "Se esperaba ("); ResultadoExpresion condicion = expresion(); consumir(TipoToken::ParentesisDerecho, "Se esperaba )"); if (condicion.tipo != "bool") semantico.agregarError("La condicion de if debe ser bool", condicion.linea, condicion.columna); std::string falso = generador.nuevaEtiqueta(), fin = generador.nuevaEtiqueta(); generador.emitir("si_falso", condicion.valor, "", falso); bloque(); if (coincide(TipoToken::Sino)) { generador.emitir("salto", "", "", fin); generador.emitir("etiqueta", "", "", falso); bloque(); generador.emitir("etiqueta", "", "", fin); } else generador.emitir("etiqueta", "", "", falso); }
-void AnalizadorSintactico::sentenciaMientras() { consumir(TipoToken::ParentesisIzquierdo, "Se esperaba ("); std::string inicio = generador.nuevaEtiqueta(), fin = generador.nuevaEtiqueta(); generador.emitir("etiqueta", "", "", inicio); ResultadoExpresion condicion = expresion(); consumir(TipoToken::ParentesisDerecho, "Se esperaba )"); if (condicion.tipo != "bool") semantico.agregarError("La condicion de while debe ser bool", condicion.linea, condicion.columna); generador.emitir("si_falso", condicion.valor, "", fin); bloque(); generador.emitir("salto", "", "", inicio); generador.emitir("etiqueta", "", "", fin); }
-void AnalizadorSintactico::sentenciaPara() { consumir(TipoToken::ParentesisIzquierdo, "Se esperaba ("); if (esTipo(actual().tipo)) { std::string tipo = consumirTipo(); Token nombre = consumir(TipoToken::Identificador, "Se esperaba identificador"); declaracionVariable(tipo, nombre); } else { asignacion(); } std::string inicio = generador.nuevaEtiqueta(), fin = generador.nuevaEtiqueta(), paso = generador.nuevaEtiqueta(); generador.emitir("etiqueta", "", "", inicio); ResultadoExpresion condicion = expresion(); consumir(TipoToken::PuntoComa, "Se esperaba ; en for"); if (condicion.tipo != "bool") semantico.agregarError("La condicion de for debe ser bool", condicion.linea, condicion.columna); generador.emitir("si_falso", condicion.valor, "", fin); std::size_t antes = generador.obtenerInstrucciones().size(); asignacion(false); std::vector<Instruccion> pasoPendiente = generador.extraerDesde(antes); consumir(TipoToken::ParentesisDerecho, "Se esperaba )"); bloque(); generador.emitir("etiqueta", "", "", paso); for (const auto& instruccion : pasoPendiente) generador.emitir(instruccion.op, instruccion.arg1, instruccion.arg2, instruccion.resultado); generador.emitir("salto", "", "", inicio); generador.emitir("etiqueta", "", "", fin); }
-void AnalizadorSintactico::sentenciaRetornar() { ResultadoExpresion valor = expresion(); consumir(TipoToken::PuntoComa, "Se esperaba ; despues de return"); generador.emitir("retornar", valor.valor, "", ""); }
-void AnalizadorSintactico::sentenciaImprimir() { consumir(TipoToken::ParentesisIzquierdo, "Se esperaba ( despues de print"); ResultadoExpresion valor = expresion(); consumir(TipoToken::ParentesisDerecho, "Se esperaba ) despues de print"); consumir(TipoToken::PuntoComa, "Se esperaba ; despues de print"); generador.emitir("imprimir", valor.valor, "", ""); }
-void AnalizadorSintactico::asignacion(bool requierePuntoComa) { Token nombre = consumir(TipoToken::Identificador, "Se esperaba variable"); consumir(TipoToken::Asignacion, "Se esperaba = en asignacion"); ResultadoExpresion valor = expresion(); if (requierePuntoComa) consumir(TipoToken::PuntoComa, "Se esperaba ; despues de asignacion"); const Simbolo* simbolo = tabla.buscar(nombre.lexema); if (!simbolo) semantico.agregarError("Variable no declarada: " + nombre.lexema, nombre.linea, nombre.columna); else if (!semantico.asignacionCompatible(simbolo->tipo, valor.tipo)) semantico.agregarError("Asignacion incompatible a " + nombre.lexema, nombre.linea, nombre.columna); generador.emitir("=", valor.valor, "", nombre.lexema); }
-ResultadoExpresion AnalizadorSintactico::expresion() { return oLogico(); }
-ResultadoExpresion AnalizadorSintactico::oLogico() { ResultadoExpresion izq = yLogico(); while (verificar(TipoToken::OLogico)) { Token op = avanzar(); izq = binaria(izq, op, yLogico()); } return izq; }
-ResultadoExpresion AnalizadorSintactico::yLogico() { ResultadoExpresion izq = igualdad(); while (verificar(TipoToken::YLogico)) { Token op = avanzar(); izq = binaria(izq, op, igualdad()); } return izq; }
-ResultadoExpresion AnalizadorSintactico::igualdad() { ResultadoExpresion izq = comparacion(); while (verificar(TipoToken::Igual) || verificar(TipoToken::Diferente)) { Token op = avanzar(); izq = binaria(izq, op, comparacion()); } return izq; }
-ResultadoExpresion AnalizadorSintactico::comparacion() { ResultadoExpresion izq = termino(); while (verificar(TipoToken::Menor) || verificar(TipoToken::Mayor) || verificar(TipoToken::MenorIgual) || verificar(TipoToken::MayorIgual)) { Token op = avanzar(); izq = binaria(izq, op, termino()); } return izq; }
-ResultadoExpresion AnalizadorSintactico::termino() { ResultadoExpresion izq = factor(); while (verificar(TipoToken::Mas) || verificar(TipoToken::Menos)) { Token op = avanzar(); izq = binaria(izq, op, factor()); } return izq; }
-ResultadoExpresion AnalizadorSintactico::factor() { ResultadoExpresion izq = unario(); while (verificar(TipoToken::Multiplicacion) || verificar(TipoToken::Division) || verificar(TipoToken::Modulo)) { Token op = avanzar(); izq = binaria(izq, op, unario()); } return izq; }
-ResultadoExpresion AnalizadorSintactico::unario() { if (verificar(TipoToken::NoLogico) || verificar(TipoToken::Menos)) { Token op = avanzar(); ResultadoExpresion valor = unario(); if (op.lexema == "!" && valor.tipo != "bool") semantico.agregarError("! requiere bool", op.linea, op.columna); if (op.lexema == "-" && valor.tipo != "int" && valor.tipo != "float") semantico.agregarError("- requiere numero", op.linea, op.columna); std::string temporal = generador.nuevoTemporal(); generador.emitir(op.lexema == "!" ? "no" : "negativo", valor.valor, "", temporal); return {temporal, op.lexema == "!" ? "bool" : valor.tipo, op.linea, op.columna}; } return primario(); }
-ResultadoExpresion AnalizadorSintactico::primario() { Token token = actual(); if (coincide(TipoToken::LiteralEntero)) return {token.lexema,"int",token.linea,token.columna}; if (coincide(TipoToken::LiteralFlotante)) return {token.lexema,"float",token.linea,token.columna}; if (coincide(TipoToken::LiteralCadena)) return {token.lexema,"string",token.linea,token.columna}; if (coincide(TipoToken::Verdadero) || coincide(TipoToken::Falso)) return {token.lexema,"bool",token.linea,token.columna}; if (coincide(TipoToken::ParentesisIzquierdo)) { ResultadoExpresion valor = expresion(); consumir(TipoToken::ParentesisDerecho, "Se esperaba )"); return valor; } if (coincide(TipoToken::Identificador)) { const Simbolo* simbolo = tabla.buscar(token.lexema); if (coincide(TipoToken::ParentesisIzquierdo)) { std::vector<ResultadoExpresion> argumentos; if (!verificar(TipoToken::ParentesisDerecho)) do argumentos.push_back(expresion()); while (coincide(TipoToken::Coma)); consumir(TipoToken::ParentesisDerecho, "Se esperaba ) en llamada"); if (!simbolo || simbolo->categoria != "funcion") { semantico.agregarError("Funcion no declarada: " + token.lexema, token.linea, token.columna); return {"0","int",token.linea,token.columna}; } if (simbolo->tiposParametros.size() != argumentos.size()) semantico.agregarError("Cantidad incorrecta de argumentos en " + token.lexema, token.linea, token.columna); for (std::size_t i=0;i<argumentos.size();++i) { if (i < simbolo->tiposParametros.size() && !semantico.asignacionCompatible(simbolo->tiposParametros[i], argumentos[i].tipo)) semantico.agregarError("Tipo incorrecto de argumento en " + token.lexema, argumentos[i].linea, argumentos[i].columna); generador.emitir("parametro", argumentos[i].valor, "", ""); } std::string temporal=generador.nuevoTemporal(); generador.emitir("llamar", token.lexema, std::to_string(argumentos.size()), temporal); return {temporal,simbolo->tipo,token.linea,token.columna}; } if (!simbolo) { semantico.agregarError("Variable no declarada: " + token.lexema, token.linea, token.columna); return {token.lexema,"desconocido",token.linea,token.columna}; } return {token.lexema,simbolo->tipo,token.linea,token.columna}; } error(token,"Se esperaba una expresion"); if (!verificar(TipoToken::FinArchivo)) avanzar(); return {"0","int",token.linea,token.columna}; }
-ResultadoExpresion AnalizadorSintactico::binaria(ResultadoExpresion izquierdo, const Token& operador, ResultadoExpresion derecho) { std::string tipo = semantico.tipoOperacion(operador.lexema, izquierdo.tipo, derecho.tipo, operador.linea, operador.columna); std::string temporal = generador.nuevoTemporal(); generador.emitir(operador.lexema, izquierdo.valor, derecho.valor, temporal); return {temporal,tipo,operador.linea,operador.columna}; }
-const std::vector<ErrorCompilador>& AnalizadorSintactico::obtenerErrores() const { return errores; }
+void AnalizadorSintactico::sentenciaSi() {
+  consumir(TipoToken::ParentesisIzquierdo, "Se esperaba (");
+  ResultadoExpresion condicion = expresion();
+  consumir(TipoToken::ParentesisDerecho, "Se esperaba )");
+  if (condicion.tipo != "bool")
+    semantico.agregarError("La condicion de if debe ser bool", condicion.linea, condicion.columna);
+  std::string falso = generador.nuevaEtiqueta(), fin = generador.nuevaEtiqueta();
+  generador.emitir("si_falso", condicion.valor, "", falso);
+  bloque();
+  if (coincide(TipoToken::Sino)) {
+    generador.emitir("salto", "", "", fin);
+    generador.emitir("etiqueta", "", "", falso);
+    bloque();
+    generador.emitir("etiqueta", "", "", fin);
+  } else
+    generador.emitir("etiqueta", "", "", falso);
+}
+void AnalizadorSintactico::sentenciaMientras() {
+  consumir(TipoToken::ParentesisIzquierdo, "Se esperaba (");
+  std::string inicio = generador.nuevaEtiqueta(), fin = generador.nuevaEtiqueta();
+  generador.emitir("etiqueta", "", "", inicio);
+  ResultadoExpresion condicion = expresion();
+  consumir(TipoToken::ParentesisDerecho, "Se esperaba )");
+  if (condicion.tipo != "bool")
+    semantico.agregarError("La condicion de while debe ser bool", condicion.linea,
+                           condicion.columna);
+  generador.emitir("si_falso", condicion.valor, "", fin);
+  bloque();
+  generador.emitir("salto", "", "", inicio);
+  generador.emitir("etiqueta", "", "", fin);
+}
+void AnalizadorSintactico::sentenciaPara() {
+  consumir(TipoToken::ParentesisIzquierdo, "Se esperaba (");
+  if (esTipo(actual().tipo)) {
+    std::string tipo = consumirTipo();
+    Token nombre = consumir(TipoToken::Identificador, "Se esperaba identificador");
+    declaracionVariable(tipo, nombre);
+  } else {
+    asignacion();
+  }
+  std::string inicio = generador.nuevaEtiqueta(), fin = generador.nuevaEtiqueta(),
+              paso = generador.nuevaEtiqueta();
+  generador.emitir("etiqueta", "", "", inicio);
+  ResultadoExpresion condicion = expresion();
+  consumir(TipoToken::PuntoComa, "Se esperaba ; en for");
+  if (condicion.tipo != "bool")
+    semantico.agregarError("La condicion de for debe ser bool", condicion.linea, condicion.columna);
+  generador.emitir("si_falso", condicion.valor, "", fin);
+  std::size_t antes = generador.obtenerInstrucciones().size();
+  asignacion(false);
+  std::vector<Instruccion> pasoPendiente = generador.extraerDesde(antes);
+  consumir(TipoToken::ParentesisDerecho, "Se esperaba )");
+  bloque();
+  generador.emitir("etiqueta", "", "", paso);
+  for (const auto &instruccion : pasoPendiente)
+    generador.emitir(instruccion.op, instruccion.arg1, instruccion.arg2, instruccion.resultado);
+  generador.emitir("salto", "", "", inicio);
+  generador.emitir("etiqueta", "", "", fin);
+}
+void AnalizadorSintactico::sentenciaRetornar() {
+  ResultadoExpresion valor = expresion();
+  consumir(TipoToken::PuntoComa, "Se esperaba ; despues de return");
+  generador.emitir("retornar", valor.valor, "", "");
+}
+void AnalizadorSintactico::sentenciaImprimir() {
+  consumir(TipoToken::ParentesisIzquierdo, "Se esperaba ( despues de print");
+  ResultadoExpresion valor = expresion();
+  consumir(TipoToken::ParentesisDerecho, "Se esperaba ) despues de print");
+  consumir(TipoToken::PuntoComa, "Se esperaba ; despues de print");
+  generador.emitir("imprimir", valor.valor, "", "");
+}
+void AnalizadorSintactico::asignacion(bool requierePuntoComa) {
+  Token nombre = consumir(TipoToken::Identificador, "Se esperaba variable");
+  consumir(TipoToken::Asignacion, "Se esperaba = en asignacion");
+  ResultadoExpresion valor = expresion();
+  if (requierePuntoComa)
+    consumir(TipoToken::PuntoComa, "Se esperaba ; despues de asignacion");
+  const Simbolo *simbolo = tabla.buscar(nombre.lexema);
+  if (!simbolo)
+    semantico.agregarError("Variable no declarada: " + nombre.lexema, nombre.linea, nombre.columna);
+  else if (!semantico.asignacionCompatible(simbolo->tipo, valor.tipo))
+    semantico.agregarError("Asignacion incompatible a " + nombre.lexema, nombre.linea,
+                           nombre.columna);
+  generador.emitir("=", valor.valor, "", nombre.lexema);
+}
+ResultadoExpresion AnalizadorSintactico::expresion() {
+  return oLogico();
+}
+ResultadoExpresion AnalizadorSintactico::oLogico() {
+  ResultadoExpresion izq = yLogico();
+  while (verificar(TipoToken::OLogico)) {
+    Token op = avanzar();
+    izq = binaria(izq, op, yLogico());
+  }
+  return izq;
+}
+ResultadoExpresion AnalizadorSintactico::yLogico() {
+  ResultadoExpresion izq = igualdad();
+  while (verificar(TipoToken::YLogico)) {
+    Token op = avanzar();
+    izq = binaria(izq, op, igualdad());
+  }
+  return izq;
+}
+ResultadoExpresion AnalizadorSintactico::igualdad() {
+  ResultadoExpresion izq = comparacion();
+  while (verificar(TipoToken::Igual) || verificar(TipoToken::Diferente)) {
+    Token op = avanzar();
+    izq = binaria(izq, op, comparacion());
+  }
+  return izq;
+}
+ResultadoExpresion AnalizadorSintactico::comparacion() {
+  ResultadoExpresion izq = termino();
+  while (verificar(TipoToken::Menor) || verificar(TipoToken::Mayor) ||
+         verificar(TipoToken::MenorIgual) || verificar(TipoToken::MayorIgual)) {
+    Token op = avanzar();
+    izq = binaria(izq, op, termino());
+  }
+  return izq;
+}
+ResultadoExpresion AnalizadorSintactico::termino() {
+  ResultadoExpresion izq = factor();
+  while (verificar(TipoToken::Mas) || verificar(TipoToken::Menos)) {
+    Token op = avanzar();
+    izq = binaria(izq, op, factor());
+  }
+  return izq;
+}
+ResultadoExpresion AnalizadorSintactico::factor() {
+  ResultadoExpresion izq = unario();
+  while (verificar(TipoToken::Multiplicacion) || verificar(TipoToken::Division) ||
+         verificar(TipoToken::Modulo)) {
+    Token op = avanzar();
+    izq = binaria(izq, op, unario());
+  }
+  return izq;
+}
+ResultadoExpresion AnalizadorSintactico::unario() {
+  if (verificar(TipoToken::NoLogico) || verificar(TipoToken::Menos)) {
+    Token op = avanzar();
+    ResultadoExpresion valor = unario();
+    if (op.lexema == "!" && valor.tipo != "bool")
+      semantico.agregarError("! requiere bool", op.linea, op.columna);
+    if (op.lexema == "-" && valor.tipo != "int" && valor.tipo != "float")
+      semantico.agregarError("- requiere numero", op.linea, op.columna);
+    std::string temporal = generador.nuevoTemporal();
+    generador.emitir(op.lexema == "!" ? "no" : "negativo", valor.valor, "", temporal);
+    return {temporal, op.lexema == "!" ? "bool" : valor.tipo, op.linea, op.columna};
+  }
+  return primario();
+}
+ResultadoExpresion AnalizadorSintactico::primario() {
+  Token token = actual();
+  if (coincide(TipoToken::LiteralEntero))
+    return {token.lexema, "int", token.linea, token.columna};
+  if (coincide(TipoToken::LiteralFlotante))
+    return {token.lexema, "float", token.linea, token.columna};
+  if (coincide(TipoToken::LiteralCadena))
+    return {token.lexema, "string", token.linea, token.columna};
+  if (coincide(TipoToken::Verdadero) || coincide(TipoToken::Falso))
+    return {token.lexema, "bool", token.linea, token.columna};
+  if (coincide(TipoToken::ParentesisIzquierdo)) {
+    ResultadoExpresion valor = expresion();
+    consumir(TipoToken::ParentesisDerecho, "Se esperaba )");
+    return valor;
+  }
+  if (coincide(TipoToken::Identificador)) {
+    const Simbolo *simbolo = tabla.buscar(token.lexema);
+    if (coincide(TipoToken::ParentesisIzquierdo)) {
+      std::vector<ResultadoExpresion> argumentos;
+      if (!verificar(TipoToken::ParentesisDerecho))
+        do
+          argumentos.push_back(expresion());
+        while (coincide(TipoToken::Coma));
+      consumir(TipoToken::ParentesisDerecho, "Se esperaba ) en llamada");
+      if (!simbolo || simbolo->categoria != "funcion") {
+        semantico.agregarError("Funcion no declarada: " + token.lexema, token.linea, token.columna);
+        return {"0", "int", token.linea, token.columna};
+      }
+      if (simbolo->tiposParametros.size() != argumentos.size())
+        semantico.agregarError("Cantidad incorrecta de argumentos en " + token.lexema, token.linea,
+                               token.columna);
+      for (std::size_t i = 0; i < argumentos.size(); ++i) {
+        if (i < simbolo->tiposParametros.size() &&
+            !semantico.asignacionCompatible(simbolo->tiposParametros[i], argumentos[i].tipo))
+          semantico.agregarError("Tipo incorrecto de argumento en " + token.lexema,
+                                 argumentos[i].linea, argumentos[i].columna);
+        generador.emitir("parametro", argumentos[i].valor, "", "");
+      }
+      std::string temporal = generador.nuevoTemporal();
+      generador.emitir("llamar", token.lexema, std::to_string(argumentos.size()), temporal);
+      return {temporal, simbolo->tipo, token.linea, token.columna};
+    }
+    if (!simbolo) {
+      semantico.agregarError("Variable no declarada: " + token.lexema, token.linea, token.columna);
+      return {token.lexema, "desconocido", token.linea, token.columna};
+    }
+    return {token.lexema, simbolo->tipo, token.linea, token.columna};
+  }
+  error(token, "Se esperaba una expresion");
+  if (!verificar(TipoToken::FinArchivo))
+    avanzar();
+  return {"0", "int", token.linea, token.columna};
+}
+ResultadoExpresion AnalizadorSintactico::binaria(ResultadoExpresion izquierdo,
+                                                 const Token &operador,
+                                                 ResultadoExpresion derecho) {
+  std::string tipo = semantico.tipoOperacion(operador.lexema, izquierdo.tipo, derecho.tipo,
+                                             operador.linea, operador.columna);
+  std::string temporal = generador.nuevoTemporal();
+  generador.emitir(operador.lexema, izquierdo.valor, derecho.valor, temporal);
+  return {temporal, tipo, operador.linea, operador.columna};
+}
+const std::vector<ErrorCompilador> &AnalizadorSintactico::obtenerErrores() const {
+  return errores;
+}

@@ -9,9 +9,10 @@
 
 class Compilador {
 public:
-    bool compilarArchivo(const std::string& ruta);
+  bool compilarArchivo(const std::string &ruta);
+
 private:
-    void imprimirTokens(const std::vector<Token>& tokens) const;
-    void imprimirTabla(const TablaSimbolos& tabla) const;
-    void imprimirCodigo(const std::vector<Instruccion>& instrucciones) const;
+  void imprimirTokens(const std::vector<Token> &tokens) const;
+  void imprimirTabla(const TablaSimbolos &tabla) const;
+  void imprimirCodigo(const std::vector<Instruccion> &instrucciones) const;
 };
