@@ -1,0 +1,19 @@
+int suma(int a, int b) {
+return a + b;
+}
+
+int main() {
+int x = 5;
+int y = 10;
+int z = suma(x, y);
+print(z);
+while (x < y) {
+x = x + 1;
+}
+if (x == y) {
+print(1);
+} else {
+print(0);
+}
+return 0;
+}
